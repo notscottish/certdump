@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [ "$#" -ne 1 ]; then
-    echo "usage: shootcerts.sh fqdn_list_filename" >&2
+    echo "usage: $(basename ${0}) fqdn_list_filename" >&2
     exit 0
 fi
 
@@ -10,13 +10,35 @@ if [ ! -f "$1" ]; then
     exit 1
 fi
 
+# if ! TMPDIR="$(mktemp -d XXXXXX 2>/dev/null)"; then
+#     echo "error: temp folder creation failed: \"$TMPDIR\"" >&2
+#     exit 1
+# fi
+
 exec 7<"$1"
 
 while read -u 7; do
-    if ! echo "" | nc -G3 ${REPLY} 443 2>/dev/null; then
+    if [ ${#REPLY} -eq 0 ]; then
         continue
     fi
-    SAN="$(echo "" | openssl s_client -connect ${REPLY}:443 -servername ${REPLY} 2>/dev/null | openssl x509 -text | grep -A1 "Subject Alternative Name:" | tail -1)"
-    SERIAL="$(echo "" | openssl s_client -connect ${REPLY}:443 -servername ${REPLY} 2>/dev/null | openssl x509 -text | grep -A1 "Serial Number:" | tail -1)"
-    echo "\"${REPLY}\",\"${SAN}\",\"$SERIAL\"" | sed -e "s/ //g"
+    
+    if ! echo "" | nc -G3 ${REPLY} 443 2>/dev/null; then
+        echo "info: port 443 not open: \"$REPLY\"" >&2
+        echo "\"${REPLY}\""
+        continue
+    fi
+
+    if ! echo "" | openssl s_client -connect ${REPLY}:443 -servername ${REPLY} > ${REPLY}.crt 2>/dev/null; then
+        # echo "warning: could not get cert for \"${REPLY}\"" >&2
+        echo "\"${REPLY}\""
+        continue
+    fi
+
+    SAN="$(openssl x509 -in ${REPLY}.crt -text 2>/dev/null | grep "Subject Alternative Name:" -A1 | tail -1 | sed -e "s/DNS://g" )"
+    SERIAL="$(openssl x509 -in ${REPLY}.crt -text 2>/dev/null | grep "Serial Number:" -A1 | tail -1 | sed -e "s/[\t ]//g")"
+
+    echo "\"${REPLY}\",\"${SAN}\",\"${SERIAL}\""
+#    SAN="$(echo "" | openssl s_client -connect ${REPLY}:443 -servername ${REPLY} 2>/dev/null | openssl x509 -text | grep -A1 "Subject Alternative Name:" | tail -1)"
+#    SERIAL="$(echo "" | openssl s_client -connect ${REPLY}:443 -servername ${REPLY} 2>/dev/null | openssl x509 -text | grep -A1 "Serial Number:" | tail -1)"
+#    echo "\"${REPLY}\",\"${SAN}\",\"$SERIAL\"" | sed -e "s/ //g"
 done
